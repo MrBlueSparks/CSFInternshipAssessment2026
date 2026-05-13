@@ -1,2 +1,6 @@
 _ignore/
 node_modules/
+*.db
+*.sqlite
+*.db-shm
+*.db-wal

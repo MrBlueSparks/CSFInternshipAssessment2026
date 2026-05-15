@@ -62,22 +62,35 @@ router.put('/:id', (req, res) => {
     paddock_id:    'paddock_id' in req.body ? req.body.paddock_id : animal.paddock_id,
   };
 
-  if (updates.paddock_id !== animal.paddock_id) {
-    if (updates.paddock_id) {
-      db.prepare(
-        'UPDATE paddocks SET animal_count = animal_count + 1 WHERE id = ?'
-      ).run(updates.paddock_id);
+  // Create a transaction to ensure all database writes succeed or fail together
+  const updateAnimalTx = db.transaction((id, oldPaddock, newPaddock, data) => {
+    // 1. Handle Paddock Transfers safely
+    if (newPaddock !== oldPaddock) {
+      if (oldPaddock) {
+        db.prepare('UPDATE paddocks SET animal_count = animal_count - 1 WHERE id = ?').run(oldPaddock);
+      }
+      if (newPaddock) {
+        db.prepare('UPDATE paddocks SET animal_count = animal_count + 1 WHERE id = ?').run(newPaddock);
+      }
     }
+
+    // 2. Update the actual animal record
+    db.prepare(`
+      UPDATE animals
+      SET name = ?, tag_number = ?, breed = ?, date_of_birth = ?, paddock_id = ?
+      WHERE id = ?
+    `).run(data.name, data.tag_number, data.breed, data.date_of_birth, data.paddock_id, id);
+  });
+
+  // Execute the transaction
+  try {
+    updateAnimalTx(req.params.id, animal.paddock_id, updates.paddock_id, updates);
+    const updated = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
+    res.json(updated);
+  } catch (error) {
+    // If the tag_number isn't unique, or another DB error happens, the transaction rolls back cleanly
+    res.status(400).json({ error: 'Failed to update animal. Ensure tag_number is unique.' });
   }
-
-  db.prepare(`
-    UPDATE animals
-    SET name = ?, tag_number = ?, breed = ?, date_of_birth = ?, paddock_id = ?
-    WHERE id = ?
-  `).run(updates.name, updates.tag_number, updates.breed, updates.date_of_birth, updates.paddock_id, req.params.id);
-
-  const updated = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
-  res.json(updated);
 });
 
 router.delete('/:id', (req, res) => {

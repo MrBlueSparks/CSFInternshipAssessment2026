@@ -134,4 +134,41 @@ router.post('/:id/health-events', (req, res) => {
   res.status(201).json(event);
 });
 
+// --- WEIGHT TRACKING ROUTES ---
+
+router.get('/:id/weights', (req, res) => {
+  const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
+  if (!animal) return res.status(404).json({ error: 'Animal not found' });
+
+  const weights = db.prepare(
+    'SELECT * FROM weight_records WHERE animal_id = ? ORDER BY date DESC'
+  ).all(req.params.id);
+  
+  res.json(weights);
+});
+
+router.post('/:id/weights', (req, res) => {
+  const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
+  if (!animal) return res.status(404).json({ error: 'Animal not found' });
+
+  const { weight_kg, date, notes } = req.body;
+
+  // 1. Basic validation
+  if (!weight_kg || !date) {
+    return res.status(400).json({ error: 'weight_kg and date are required' });
+  }
+
+  // 2. Business logic validation (Catching it before the DB throws an error)
+  if (parseFloat(weight_kg) <= 0) {
+    return res.status(400).json({ error: 'Weight must be a positive number' });
+  }
+
+  // 3. Insert and return
+  const result = db.prepare(
+    'INSERT INTO weight_records (animal_id, weight_kg, date, notes) VALUES (?, ?, ?, ?)'
+  ).run(req.params.id, weight_kg, date, notes ?? null);
+
+  const newWeight = db.prepare('SELECT * FROM weight_records WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(newWeight);
+});
 module.exports = router;
